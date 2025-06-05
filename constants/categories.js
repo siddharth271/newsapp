@@ -1,1 +1,1 @@
-export default ['Top', 'Tech', 'World', 'Health', 'Finance'];
+export default ['business', 'entertainment', 'general', 'health', 'science', 'sports', 'technology'];

@@ -1,189 +1,247 @@
-import React, { useEffect, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  Image, 
-  TouchableOpacity,
-  Animated,
-  Dimensions
+import React, { useState } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const { width } = Dimensions.get('window');
+export default function NewsCard({ news, onPress }) {
+  const [imageLoading, setImageLoading] = useState(true);
+  const [imageError, setImageError] = useState(false);
 
-export default function NewsCard({ news, index, onPress }) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(50)).current;
+  const saveBookmark = async () => {
+    try {
+      const existing = await AsyncStorage.getItem('bookmarkedArticles');
+      const bookmarks = existing ? JSON.parse(existing) : [];
+      const updated = [...bookmarks, news];
+      await AsyncStorage.setItem('bookmarkedArticles', JSON.stringify(updated));
+      alert('Bookmarked!');
+    } catch (e) {
+      console.error('Bookmark error:', e);
+    }
+  };
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        delay: index * 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 600,
-        delay: index * 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
+  // Improved image URL extraction and validation
+  const getImageUrl = () => {
+    console.log('News object for image:', {
+      image_url: news.image_url,
+      urlToImage: news.urlToImage,
+      image: news.image,
+      multimedia: news.multimedia
+    });
+    
+    // Try multiple possible image fields
+    let imageUrl = news.image_url || 
+                   news.urlToImage || 
+                   news.image || 
+                   news.multimedia?.[0]?.url ||
+                   news.media?.[0]?.url ||
+                   news.enclosure?.url;
+    
+    if (!imageUrl) {
+      console.log('No image URL found in any field');
+      return null;
+    }
+
+    // Clean and validate URL
+    imageUrl = imageUrl.trim();
+    
+    // Handle relative URLs
+    if (imageUrl.startsWith('//')) {
+      imageUrl = `https:${imageUrl}`;
+    } else if (imageUrl.startsWith('/')) {
+      // Can't resolve relative URLs without base domain
+      console.log('Relative URL found, skipping:', imageUrl);
+      return null;
+    } else if (!imageUrl.startsWith('http')) {
+      imageUrl = `https://${imageUrl}`;
+    }
+
+    // Basic URL validation - less restrictive
+    try {
+      const url = new URL(imageUrl);
+      // Allow common image domains and formats
+      if (url.hostname && (
+        imageUrl.match(/\.(jpg|jpeg|png|webp|gif)(\?|$)/i) ||
+        url.hostname.includes('image') ||
+        url.hostname.includes('photo') ||
+        url.hostname.includes('media') ||
+        url.hostname.includes('cdn') ||
+        imageUrl.includes('placeholder')
+      )) {
+        console.log('Valid image URL found:', imageUrl);
+        return imageUrl;
+      } else {
+        console.log('URL does not appear to be an image:', imageUrl);
+        return imageUrl; // Still try to load it, let the Image component handle it
+      }
+    } catch (error) {
+      console.log('Invalid URL format:', imageUrl, error.message);
+      return null;
+    }
+  };
+
+  const imageUrl = getImageUrl();
+
+  const handleImageLoad = () => {
+    console.log('Image loaded successfully:', imageUrl);
+    setImageLoading(false);
+    setImageError(false);
+  };
+
+  const handleImageError = (error) => {
+    console.log('Image loading error:', error?.nativeEvent?.error || 'Unknown error');
+    console.log('Failed URL:', imageUrl);
+    setImageLoading(false);
+    setImageError(true);
+  };
+
+  const renderImage = () => {
+    if (!imageUrl) {
+      // Show placeholder when no image URL
+      return (
+        <View style={styles.imagePlaceholder}>
+          <Ionicons name="newspaper-outline" size={40} color="#666" />
+          <Text style={styles.placeholderText}>No Image Available</Text>
+        </View>
+      );
+    }
+
+    if (imageError) {
+      // Show error placeholder
+      return (
+        <View style={styles.imagePlaceholder}>
+          <Ionicons name="image-off-outline" size={40} color="#666" />
+          <Text style={styles.placeholderText}>Image Failed to Load</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.imageContainer}>
+        <Image
+          source={{ 
+            uri: imageUrl,
+            cache: 'force-cache' // Better caching
+          }}
+          style={styles.image}
+          onLoad={handleImageLoad}
+          onError={handleImageError}
+          resizeMode="cover"
+          // Remove timeout prop as it's not a valid Image prop
+        />
+        {imageLoading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="small" color="#00f5ff" />
+            <Text style={styles.loadingText}>Loading image...</Text>
+          </View>
+        )}
+      </View>
+    );
+  };
 
   return (
-    <Animated.View 
-      style={[
-        styles.cardWrapper,
-        {
-          opacity: fadeAnim,
-          transform: [{ translateY: slideAnim }],
-        },
-      ]}
-    >
-      <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
-        <View style={styles.imageContainer}>
-          <Image 
-            source={{ uri: news.image }} 
-            style={styles.image}
-            resizeMode="cover"
-          />
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.8)']}
-            style={styles.imageOverlay}
-          />
-          <View style={styles.categoryBadge}>
-            <Text style={styles.categoryText}>{news.category}</Text>
-          </View>
-        </View>
-        
-        <View style={styles.content}>
-          <Text style={styles.title} numberOfLines={3}>
-            {news.title}
+    <TouchableOpacity onPress={onPress} style={styles.card}>
+      {renderImage()}
+      <View style={styles.content}>
+        <Text style={styles.title} numberOfLines={3}>
+          {news.title || 'No Title Available'}
+        </Text>
+        {(news.source_id || news.source?.name || news.source) && (
+          <Text style={styles.source}>
+            {news.source_id || news.source?.name || news.source}
           </Text>
-          <Text style={styles.description} numberOfLines={3}>
-            {news.description}
+        )}
+        {(news.publishedAt || news.published_date) && (
+          <Text style={styles.date}>
+            {new Date(news.publishedAt || news.published_date).toLocaleDateString()}
           </Text>
-          
-          <View style={styles.footer}>
-            <View style={styles.metaInfo}>
-              <Text style={styles.source}>{news.source}</Text>
-              <View style={styles.dot} />
-              <Text style={styles.time}>{news.time}</Text>
-            </View>
-            
-            <TouchableOpacity style={styles.readMoreButton}>
-              <Text style={styles.readMoreText}>Read</Text>
-              <Ionicons name="chevron-forward" size={16} color="#00f5ff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
+        )}
+        <TouchableOpacity onPress={saveBookmark} style={styles.bookmark}>
+          <Ionicons name="bookmark-outline" size={20} color="#00f5ff" />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  cardWrapper: {
-    marginHorizontal: 16,
-    marginBottom: 20,
-  },
   card: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 20,
+    backgroundColor: '#111',
+    margin: 10,
+    borderRadius: 10,
     overflow: 'hidden',
+    elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   imageContainer: {
+    height: 180,
+    width: '100%',
     position: 'relative',
-    height: 200,
   },
   image: {
-    width: '100%',
     height: '100%',
+    width: '100%',
+    resizeMode: 'cover',
   },
-  imageOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  imagePlaceholder: {
+    height: 180,
+    width: '100%',
+    backgroundColor: '#222',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  categoryBadge: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    backgroundColor: 'rgba(0, 245, 255, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  categoryText: {
-    color: '#000',
+  placeholderText: {
+    color: '#666',
     fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    marginTop: 5,
+    textAlign: 'center',
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 12,
+    marginTop: 5,
   },
   content: {
-    padding: 20,
+    padding: 15,
+    position: 'relative',
+    minHeight: 80,
   },
   title: {
+    fontSize: 16,
     color: '#fff',
-    fontSize: 20,
-    fontWeight: '700',
-    lineHeight: 26,
-    marginBottom: 12,
-  },
-  description: {
-    color: '#bbb',
-    fontSize: 15,
+    fontWeight: '600',
     lineHeight: 22,
-    marginBottom: 16,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  metaInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
+    marginBottom: 8,
   },
   source: {
+    fontSize: 12,
+    color: '#ccc',
+    marginBottom: 4,
+  },
+  date: {
+    fontSize: 11,
     color: '#888',
-    fontSize: 13,
-    fontWeight: '600',
   },
-  dot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: '#555',
-    marginHorizontal: 8,
-  },
-  time: {
-    color: '#666',
-    fontSize: 13,
-  },
-  readMoreButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 245, 255, 0.1)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 245, 255, 0.3)',
-  },
-  readMoreText: {
-    color: '#00f5ff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginRight: 4,
+  bookmark: {
+    position: 'absolute',
+    top: 15,
+    right: 15,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 15,
+    padding: 5,
   },
 });
